@@ -1,0 +1,9 @@
+[submodule "rescuemesh-sos-service"]
+	path = rescuemesh-sos-service
+	url = https://github.com/KdbAzizul/rescuemesh-sos-service.git
+[submodule "rescuemesh-matching-service"]
+	path = rescuemesh-matching-service
+	url = https://github.com/KdbAzizul/rescuemesh-matching-service.git
+[submodule "rescuemesh-notification-service"]
+	path = rescuemesh-notification-service
+	url = https://github.com/KdbAzizul/rescuemesh-notification-service.git

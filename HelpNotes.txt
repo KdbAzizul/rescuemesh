@@ -1,0 +1,2 @@
+docker-compose build --no-cache sos-service
+docker-compose up -d sos-service

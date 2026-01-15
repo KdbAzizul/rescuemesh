@@ -1,0 +1,234 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Databases
+  postgres-sos:
+    image: postgres:15-alpine
+    container_name: postgres-sos
+    environment:
+      POSTGRES_DB: rescuemesh_sos
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres-sos-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-matching:
+    image: postgres:15-alpine
+    container_name: postgres-matching
+    environment:
+      POSTGRES_DB: rescuemesh_matching
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres-matching-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-notification:
+    image: postgres:15-alpine
+    container_name: postgres-notification
+    environment:
+      POSTGRES_DB: rescuemesh_notification
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres-notification-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Instances
+  redis-sos:
+    image: redis:7-alpine
+    container_name: redis-sos
+    ports:
+      - "6374:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  redis-matching:
+    image: redis:7-alpine
+    container_name: redis-matching
+    ports:
+      - "6375:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  redis-notification:
+    image: redis:7-alpine
+    container_name: redis-notification
+    ports:
+      - "6376:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # RabbitMQ Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Your Services
+  sos-service:
+    build:
+      context: ./rescuemesh-sos-service
+      dockerfile: Dockerfile
+    container_name: sos-service
+    ports:
+      - "3004:3004"
+    environment:
+      - NODE_ENV=production
+      - PORT=3004
+      - DB_HOST=postgres-sos
+      - DB_PORT=5432
+      - DB_NAME=rescuemesh_sos
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_HOST=redis-sos
+      - REDIS_PORT=6379
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - RABBITMQ_QUEUE_MATCHING=matching.trigger
+      - USER_SERVICE_URL=http://user-service:3001
+      - SKILL_SERVICE_URL=http://skill-service:3002
+      - DISASTER_SERVICE_URL=http://disaster-service:3003
+      - MATCHING_SERVICE_URL=http://matching-service:3005
+    depends_on:
+      postgres-sos:
+        condition: service_healthy
+      redis-sos:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  matching-service:
+    build:
+      context: ./rescuemesh-matching-service
+      dockerfile: Dockerfile
+    container_name: matching-service
+    ports:
+      - "3005:3005"
+    environment:
+      - NODE_ENV=production
+      - PORT=3005
+      - DB_HOST=postgres-matching
+      - DB_PORT=5432
+      - DB_NAME=rescuemesh_matching
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_HOST=redis-matching
+      - REDIS_PORT=6379
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - RABBITMQ_QUEUE_SOS=sos.requests
+      - RABBITMQ_QUEUE_NOTIFICATION=notifications.send
+      - USER_SERVICE_URL=http://user-service:3001
+      - SKILL_SERVICE_URL=http://skill-service:3002
+      - DISASTER_SERVICE_URL=http://disaster-service:3003
+      - SOS_SERVICE_URL=http://sos-service:3004
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3006
+      - MAX_MATCH_RADIUS=50
+      - MATCH_SCORE_THRESHOLD=5.0
+      - MAX_MATCHES_PER_REQUEST=10
+    depends_on:
+      postgres-matching:
+        condition: service_healthy
+      redis-matching:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: ./rescuemesh-notification-service
+      dockerfile: Dockerfile
+    container_name: notification-service
+    ports:
+      - "3006:3006"
+    environment:
+      - NODE_ENV=production
+      - PORT=3006
+      - DB_HOST=postgres-notification
+      - DB_PORT=5432
+      - DB_NAME=rescuemesh_notification
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_HOST=redis-notification
+      - REDIS_PORT=6379
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672
+      - RABBITMQ_QUEUE_NOTIFICATION=notifications.send
+      - USER_SERVICE_URL=http://user-service:3001
+      - SMS_ENABLED=true
+      - PUSH_ENABLED=true
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER:-}
+    depends_on:
+      postgres-notification:
+        condition: service_healthy
+      redis-notification:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # API Gateway (Simple nginx-based)
+  api-gateway:
+    image: nginx:alpine
+    container_name: api-gateway
+    ports:
+      - "8000:80"
+    volumes:
+      - ./api-gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - sos-service
+      - matching-service
+      - notification-service
+    restart: unless-stopped
+
+volumes:
+  postgres-sos-data:
+  postgres-matching-data:
+  postgres-notification-data:
+  rabbitmq-data:
+
+networks:
+  default:
+    name: rescuemesh-network
