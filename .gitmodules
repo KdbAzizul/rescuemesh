@@ -16,3 +16,6 @@
 [submodule "rescuemesh-disaster-service"]
 	path = rescuemesh-disaster-service
 	url = https://github.com/ahmfuad/rescuemesh-disaster-service.git
+[submodule "frontend"]
+	path = frontend
+	url = https://github.com/ahmfuad/rescuemesh-frontend.git
